@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Editor - YouTube & TikTok</title>
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png" type="image/png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+  <div class="max-w-3xl mx-auto py-10 px-4">
+    <h1 class="text-3xl font-bold mb-6 text-center">🎬 Video Editor for YouTube & TikTok</h1>
+
+    <input type="file" id="videoUpload" accept="video/*" class="mb-4 block w-full" />
+
+    <div class="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0 mb-4">
+      <div class="flex-1">
+        <label>Start Time (seconds):</label>
+        <input type="number" id="startTime" class="w-full border p-2 rounded" value="0" />
+      </div>
+      <div class="flex-1">
+        <label>End Time (seconds):</label>
+        <input type="number" id="endTime" class="w-full border p-2 rounded" />
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <label>Add Text Overlay:</label>
+      <input type="text" id="overlayText" class="w-full border p-2 rounded" placeholder="Enter text (optional)" />
+    </div>
+
+    <div class="mb-4">
+      <label>Add Background Music (optional):</label>
+      <input type="file" id="musicUpload" accept="audio/*" class="w-full border p-2 rounded" />
+    </div>
+
+    <div class="mb-4">
+      <label>Aspect Ratio:</label>
+      <select id="aspectRatio" class="w-full border p-2 rounded">
+        <option value="16:9">YouTube (16:9)</option>
+        <option value="9:16">TikTok (9:16)</option>
+      </select>
+    </div>
+
+    <button id="processBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 w-full">Process Video</button>
+
+    <div id="progress" class="mt-4 text-sm text-gray-700 hidden">Processing...</div>
+
+    <video id="outputVideo" class="mt-6 w-full hidden rounded-lg shadow-md" controls></video>
+    <a id="downloadLink" class="mt-4 inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 hidden" download="edited.mp4">Download Video</a>
+  </div>
+
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+
+    const videoUpload = document.getElementById("videoUpload");
+    const musicUpload = document.getElementById("musicUpload");
+    const startTime = document.getElementById("startTime");
+    const endTime = document.getElementById("endTime");
+    const overlayText = document.getElementById("overlayText");
+    const aspectRatio = document.getElementById("aspectRatio");
+    const processBtn = document.getElementById("processBtn");
+    const outputVideo = document.getElementById("outputVideo");
+    const progress = document.getElementById("progress");
+    const downloadLink = document.getElementById("downloadLink");
+
+    let videoFile;
+    let musicFile;
+
+    videoUpload.addEventListener("change", (e) => {
+      videoFile = e.target.files[0];
+    });
+    musicUpload.addEventListener("change", (e) => {
+      musicFile = e.target.files[0];
+    });
+
+    processBtn.addEventListener("click", async () => {
+      if (!videoFile) return alert("Please upload a video.");
+
+      progress.classList.remove("hidden");
+      downloadLink.classList.add("hidden");
+      outputVideo.classList.add("hidden");
+
+      if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+      const inputName = "input.mp4";
+      const outputName = "output.mp4";
+      ffmpeg.FS("writeFile", inputName, await fetchFile(videoFile));
+
+      if (musicFile) {
+        ffmpeg.FS("writeFile", "music.mp3", await fetchFile(musicFile));
+      }
+
+      const start = startTime.value || "0";
+      const end = endTime.value ? `-to ${endTime.value}` : "";
+
+      let cropFilter = "";
+      if (aspectRatio.value === "9:16") {
+        cropFilter = "scale=1080:1920";
+      } else if (aspectRatio.value === "16:9") {
+        cropFilter = "scale=1920:1080";
+      }
+
+      let drawTextFilter = "";
+      if (overlayText.value) {
+        drawTextFilter = `,drawtext=text='${overlayText.value}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=(h-text_h)-50`;
+      }
+
+      const filters = cropFilter || drawTextFilter ? `-vf ${cropFilter}${drawTextFilter}` : "";
+
+      const args = [
+        "-i", inputName,
+        ...(musicFile ? ["-i", "music.mp3", "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2", "-map", "0:v", "-map", "[a]"] : []),
+        "-ss", start,
+        ...(end ? ["-to", endTime.value] : []),
+        ...(filters ? filters.split(" ") : []),
+        "-preset", "ultrafast",
+        outputName
+      ];
+
+      await ffmpeg.run(...args);
+
+      const data = ffmpeg.FS("readFile", outputName);
+      const videoBlob = new Blob([data.buffer], { type: "video/mp4" });
+      const videoURL = URL.createObjectURL(videoBlob);
+      outputVideo.src = videoURL;
+      outputVideo.classList.remove("hidden");
+      downloadLink.href = videoURL;
+      downloadLink.classList.remove("hidden");
+      progress.classList.add("hidden");
+    });
+  </script>
+</body>
+</html>
